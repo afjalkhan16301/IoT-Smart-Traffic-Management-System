@@ -1,0 +1,227 @@
+#include <WiFi.h>
+#include <ThingSpeak.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// ================= WIFI =================
+const char* ssid = "Wokwi-GUEST";
+const char* password = "";
+
+WiFiClient client;
+
+// ================= THINGSPEAK =================
+unsigned long channelID = 3375446;
+const char* writeAPI = "HB0HNJHYJR55UR0G";
+
+// ================= LCD =================
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ================= NORTH SIGNAL =================
+#define N_RED     27
+#define N_YELLOW  26
+#define N_GREEN   25
+#define N_TRIG    14
+#define N_ECHO    12
+
+// ================= SOUTH SIGNAL =================
+#define S_RED     4
+#define S_YELLOW  19
+#define S_GREEN   17
+#define S_TRIG    18
+#define S_ECHO    5
+
+// ================= BUZZER =================
+#define BUZZER 33
+
+// ================= DISTANCE FUNCTION =================
+long getDistance(int trigPin, int echoPin) {
+
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+
+  digitalWrite(trigPin, LOW);
+
+  long duration = pulseIn(echoPin, HIGH);
+
+  long distance = duration * 0.034 / 2;
+
+  return distance;
+}
+
+void setup() {
+
+  Serial.begin(115200);
+
+  // LED Setup
+  pinMode(N_RED, OUTPUT);
+  pinMode(N_YELLOW, OUTPUT);
+  pinMode(N_GREEN, OUTPUT);
+
+  pinMode(S_RED, OUTPUT);
+  pinMode(S_YELLOW, OUTPUT);
+  pinMode(S_GREEN, OUTPUT);
+
+  // Ultrasonic
+  pinMode(N_TRIG, OUTPUT);
+  pinMode(N_ECHO, INPUT);
+
+  pinMode(S_TRIG, OUTPUT);
+  pinMode(S_ECHO, INPUT);
+
+  // Buzzer
+  pinMode(BUZZER, OUTPUT);
+
+  // LCD
+  Wire.begin(21, 22);
+
+  lcd.init();
+  lcd.backlight();
+
+  lcd.setCursor(0,0);
+  lcd.print("Connecting WiFi");
+
+  // WiFi Connect
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("WiFi Connected");
+
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("WiFi Connected");
+
+  delay(2000);
+
+  // ThingSpeak
+  ThingSpeak.begin(client);
+}
+
+void loop() {
+
+  // Distance Read
+  long northDistance = getDistance(N_TRIG, N_ECHO);
+  long southDistance = getDistance(S_TRIG, S_ECHO);
+
+  String trafficStatus = "NORMAL";
+  String buzzerStatus = "OFF";
+
+  // Object Detection
+  if (northDistance < 20 || southDistance < 20) {
+
+    digitalWrite(BUZZER, HIGH);
+
+    trafficStatus = "OBJECT DETECT";
+    buzzerStatus = "ON";
+
+    lcd.clear();
+
+    lcd.setCursor(0,0);
+    lcd.print("OBJECT DETECT");
+
+    lcd.setCursor(0,1);
+    lcd.print("BUZZER ON");
+
+    delay(2000);
+  }
+  else {
+
+    digitalWrite(BUZZER, LOW);
+  }
+
+  // ================= NORTH GREEN =================
+  digitalWrite(N_GREEN, HIGH);
+  digitalWrite(N_RED, LOW);
+
+  digitalWrite(S_RED, HIGH);
+  digitalWrite(S_GREEN, LOW);
+
+  lcd.clear();
+
+  lcd.setCursor(0,0);
+  lcd.print("North Green");
+
+  // Countdown
+  for (int i = 20; i >= 1; i--) {
+
+    lcd.setCursor(0,1);
+    lcd.print("Timer: ");
+    lcd.print(i);
+    lcd.print("   ");
+
+    delay(1000);
+  }
+
+  // NORTH YELLOW
+  digitalWrite(N_GREEN, LOW);
+  digitalWrite(N_YELLOW, HIGH);
+
+  digitalWrite(BUZZER, HIGH);
+
+  delay(2000);
+
+  digitalWrite(BUZZER, LOW);
+
+  digitalWrite(N_YELLOW, LOW);
+  digitalWrite(N_RED, HIGH);
+
+  // ================= SOUTH GREEN =================
+  digitalWrite(S_RED, LOW);
+  digitalWrite(S_GREEN, HIGH);
+
+  lcd.clear();
+
+  lcd.setCursor(0,0);
+  lcd.print("South Green");
+
+  // Countdown
+  for (int i = 20; i >= 1; i--) {
+
+    lcd.setCursor(0,1);
+    lcd.print("Timer: ");
+    lcd.print(i);
+    lcd.print("   ");
+
+    delay(1000);
+  }
+
+  // SOUTH YELLOW
+  digitalWrite(S_GREEN, LOW);
+  digitalWrite(S_YELLOW, HIGH);
+
+  digitalWrite(BUZZER, HIGH);
+
+  delay(2000);
+
+  digitalWrite(BUZZER, LOW);
+
+  digitalWrite(S_YELLOW, LOW);
+  digitalWrite(S_RED, HIGH);
+
+  // ================= SEND DATA TO THINGSPEAK =================
+
+  ThingSpeak.setField(1, northDistance);
+  ThingSpeak.setField(2, southDistance);
+  ThingSpeak.setField(3, trafficStatus);
+  ThingSpeak.setField(4, buzzerStatus);
+  ThingSpeak.setField(5, "North Green");
+  ThingSpeak.setField(6, "South Red");
+  ThingSpeak.setField(7, "Vehicle Check");
+  ThingSpeak.setField(8, "20 Sec Timer");
+
+  int response = ThingSpeak.writeFields(channelID, writeAPI);
+
+  if(response == 200) {
+    Serial.println("Data Sent to ThingSpeak");
+  }
+  else {
+    Serial.println("ThingSpeak Error");
+  }
+
+  delay(15000);
+}
